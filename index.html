@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>AWS DEA Flashcards</title>
+<style>
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
+  html,body { margin:0; height:100%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    background:#0f1419; color:#e6e6e6; display:flex; flex-direction:column; min-height:100vh;
+    padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  header { padding:12px 16px 4px; text-align:center; }
+  h1 { font-size:15px; margin:0; color:#ff9900; font-weight:700; }
+  .bar { display:flex; gap:8px; justify-content:center; align-items:center; flex-wrap:wrap; padding:8px 12px; }
+  select,.mini { font-size:13px; padding:7px 10px; border-radius:9px; border:1px solid #2f3b47; background:#1a2027; color:#e6e6e6; }
+  .mini:active { background:#2a3540; }
+  .stats { font-size:12px; color:#8b98a5; text-align:center; padding:2px 12px 6px; }
+  .area { flex:1; display:flex; align-items:center; justify-content:center; padding:10px 14px; }
+  .card { width:100%; max-width:560px; min-height:46vh; background:linear-gradient(160deg,#1c2730,#141b22);
+    border:1px solid #2f3b47; border-radius:18px; padding:26px 22px; display:flex; flex-direction:column;
+    justify-content:center; cursor:pointer; position:relative; box-shadow:0 8px 24px rgba(0,0,0,.4); }
+  .tag { position:absolute; top:12px; left:16px; font-size:11px; letter-spacing:.5px; text-transform:uppercase; color:#ff9900; font-weight:700; }
+  .side { position:absolute; top:12px; right:16px; font-size:11px; color:#5b6b7a; text-transform:uppercase; }
+  .q { font-size:20px; line-height:1.45; font-weight:600; text-align:center; }
+  .ans { font-size:16px; line-height:1.5; text-align:left; -webkit-user-select:text; user-select:text; }
+  .ans ul { margin:8px 0 0; padding-left:18px; } .ans li { margin-bottom:6px; } b { color:#ffd27a; }
+  .hint { text-align:center; font-size:12px; color:#5b6b7a; margin-top:20px; }
+  .grade { display:flex; gap:12px; justify-content:center; padding:10px 14px 20px; }
+  .grade button { flex:1; max-width:200px; padding:16px; font-size:16px; font-weight:700; border-radius:14px; border:none; color:#fff; }
+  .no { background:#b3443b; } .no:active { background:#8f352e; }
+  .yes { background:#2e8b57; } .yes:active { background:#236b43; }
+  .done { text-align:center; padding:40px 24px; }
+  .done h2 { color:#2e8b57; } .done p { color:#8b98a5; }
+  .flip-note { font-size:11px; color:#5b6b7a; text-align:center; padding-bottom:8px; }
+</style>
+</head>
+<body>
+<header><h1>AWS Data Engineer Associate — Flashcards</h1></header>
+<div class="bar">
+  <select id="filter"></select>
+  <button class="mini" id="shuffleBtn">🔀 Shuffle</button>
+  <button class="mini" id="resetBtn">↺ Reset progress</button>
+</div>
+<div class="stats" id="stats"></div>
+
+<div class="area">
+  <div class="card" id="card">
+    <span class="tag" id="tag"></span>
+    <span class="side" id="side">Question</span>
+    <div id="content"></div>
+    <div class="hint" id="hint">tap to reveal answer</div>
+  </div>
+</div>
+
+<div class="flip-note" id="flipNote"></div>
+<div class="grade" id="grade" style="display:none">
+  <button class="no" id="noBtn">❌ Didn't know</button>
+  <button class="yes" id="yesBtn">✅ Knew it</button>
+</div>
+
+<script>
+const CARDS = [
+["Overview","The 4 exam domains and weights?","<ul><li>Data Ingestion &amp; Transformation — <b>34%</b></li><li>Data Store Management — <b>26%</b></li><li>Data Operations &amp; Support — <b>22%</b></li><li>Data Security &amp; Governance — <b>18%</b></li></ul>"],
+["Overview","Habit to beat the #1 exam trap?","List the 2–4 <b>requirements</b> in the scenario, then eliminate any option that fails <b>even one</b>. Don't pick an option strong on just one dimension."],
+["Kinesis","Kinesis Data Streams — what is it?","Real-time ingestion <b>pipe</b>. Multiple consumers, <b>replay</b> (retention 24h, up to 365 days), you build consumers (Lambda/KCL/Flink), scales via <b>shards</b>."],
+["Kinesis","Kinesis Data Firehose — what is it?","Managed <b>delivery</b> to S3 / Redshift / OpenSearch / Splunk. Buffers, native JSON→Parquet, dynamic partitioning. Minimal code, no servers. Near-real-time."],
+["Kinesis","Managed Service for Apache Flink?","Real-time <b>stateful</b> stream processing: windows, aggregations over time, stream joins, fraud detection. (Formerly Kinesis Data Analytics.)"],
+["Kinesis","Enhanced fan-out — when?","Multiple <b>consumers</b> each need <b>dedicated</b> throughput + low latency (2 MB/s per shard each, HTTP/2 push). About consumers, not volume."],
+["Kinesis","On-demand capacity mode — when?","Unpredictable/spiky <b>volume</b>, auto-scales, no shard management. About volume, not consumers."],
+["Kinesis","How is durability handled?","Data is <b>automatically replicated across 3 AZs</b> — nothing to enable."],
+["Kinesis","Retention period vs Replayability?","<b>Retention</b> = how long data stays (24h–365d); pick when a window like '7 days' is named. <b>Replayability</b> = capability to reprocess after errors."],
+["Kinesis","Lambda vs Flink for processing?","<b>Lambda</b> = stateless per-record transform. <b>Flink</b> = stateful over time (windows, sessions, joins, running aggregations)."],
+["Kinesis","Partition key role?","Decides which <b>shard</b> a record lands on. Hot/skewed key → one hot shard; fix with randomized/composite key."],
+["Kinesis","KPL vs KCL?","<b>KPL</b> = Producer Library (write/batch INTO stream). <b>KCL</b> = Client Library (build consumers, checkpointing to resume)."],
+["Kinesis","MSK?","Managed Apache Kafka. You build producers/consumers (most ops effort). Pick when they want Kafka specifically."],
+["Storage","Block vs File vs Object?","<b>Block=EBS</b> (one EC2's disk; databases). <b>File=EFS/FSx</b> (shared, many instances). <b>Object=S3</b> (data lake/backups). S3 is never a live DB disk."],
+["Storage","EBS key facts?","Block storage for one EC2 instance. <b>Persists</b> on stop/terminate. Snapshots = incremental backups in S3, copyable cross-region. gp3/gp2 general, io1/io2 high IOPS, st1 throughput HDD, sc1 cold."],
+["Storage","EC2 instance store?","<b>Ephemeral</b> — data LOST on stop/terminate. Fast + cheap, temp/intermediate data only. Trap vs EBS when 'must survive termination'."],
+["Storage","EBS gp3 vs io1/io2?","gp3 = general SSD, cheaper, independently tune IOPS/throughput. io1/io2 = highest consistent IOPS for critical I/O-heavy databases."],
+["S3","Storage class decision?","<ul><li>Frequent → <b>Standard</b></li><li>Infrequent, fast → <b>Standard-IA</b></li><li>Unknown/changing → <b>Intelligent-Tiering</b></li><li>Archive min–hours → <b>Glacier Flexible Retrieval</b></li><li>Archive cheapest ~12h → <b>Glacier Deep Archive</b></li></ul>"],
+["S3","Glacier retrieval tiers?","<b>Instant Retrieval</b> = ms. <b>Flexible Retrieval</b> = minutes–hours. <b>Deep Archive</b> = ~12h, cheapest."],
+["S3","Intelligent-Tiering — when?","<b>Unknown/changing</b> access + hands-off. Auto-tiers, no retrieval fee for frequent/infrequent tiers, no lifecycle rules needed."],
+["S3","One Zone-IA caveat?","Single AZ → data loss risk if AZ fails. Only for reproducible/non-critical data."],
+["S3","Lower global transfer cost + authenticated-only media?","<b>CloudFront</b> (edge caching) with S3 origin + <b>signed URLs</b>."],
+["S3","Trigger processing when a file lands in S3?","<b>S3 Event Notification</b> (s3:ObjectCreated) → Lambda/EventBridge. Lifecycle rules/bucket policies/versioning do NOT trigger Lambda."],
+["Redshift","Does Redshift have indexes?","<b>NO.</b> Performance = columnar storage + SORT KEY + DIST KEY (+ materialized views, result cache). 'Create an index' = wrong."],
+["Redshift","DIST KEY vs SORT KEY?","<b>DIST KEY</b> = JOIN column (colocate → avoid shuffle). <b>SORT KEY</b> = filter/range column (zone maps skip blocks)."],
+["Redshift","DISTSTYLE ALL vs EVEN?","<b>ALL</b> = replicate table to every node — small dimension tables. <b>EVEN</b> = default when no clear join key. ALL is wrong for big fact tables."],
+["Redshift","Materialized view — when?","Precomputed <b>stored</b> result (auto-refresh). Speeds up repeated complex/aggregation queries. Doesn't change base tables."],
+["Redshift","Spectrum vs Federated vs Data Sharing?","Match the source: <b>S3 → Spectrum</b>; <b>Aurora/RDS Postgres/MySQL → Federated Query</b>; <b>another Redshift cluster → Data Sharing</b>. (Aurora is NOT in S3.)"],
+["Redshift","RA3 vs DC2?","<b>RA3 + managed storage</b> = decouple compute/storage, hot SSD / cold to S3, multi-AZ. <b>DC2</b> = coupled, local SSD, older."],
+["Redshift","Redshift Serverless — when?","<b>Intermittent/spiky/idle</b> workloads, no capacity mgmt, pay per use. (Steady heavy → provisioned RA3.)"],
+["Redshift","Redshift Data API — when?","SQL from <b>Lambda/serverless</b>, <b>async</b>, <b>no persistent connection</b>. (JDBC = persistent conn = wrong for serverless.)"],
+["Redshift","Automatic vs Manual WLM?","<b>Automatic WLM</b> = dynamic memory/concurrency, no manual config. <b>Manual</b> = you configure queues."],
+["Redshift","Fastest bulk load S3→Redshift?","<b>COPY</b> with data <b>split into many files</b> (multiple of slice count) for parallel load. Single gzip file = no parallelism. Row INSERT = anti-pattern."],
+["Redshift","Why fast for analytics?","<b>Columnar storage</b> reads only needed columns → less I/O. Plus MPP parallelism."],
+["Redshift","Concurrency Scaling?","Adds temporary compute for bursts of concurrent queries."],
+["DynamoDB","What is it?","Serverless NoSQL key-value/document. Single-digit-ms, massive scale, schema-less, horizontal scaling, multi-AZ. Not for complex joins."],
+["DynamoDB","On-demand vs Provisioned?","<b>On-demand</b> = unpredictable/spiky/new, no planning, instant. <b>Provisioned</b> = steady (cheaper); +auto-scaling (gradual); +reserved (stable long-term cost)."],
+["DynamoDB","Why on-demand for sudden spikes?","Auto-scaling <b>lags</b> and needs min/max planning → spikes can throttle. On-demand absorbs instantly, no planning."],
+["DynamoDB","GSI vs LSI?","<b>GSI</b> = different partition AND sort key, add anytime (flexible). <b>LSI</b> = same partition key, different sort key, create-time only. Different partition key → GSI."],
+["DynamoDB","Streams view types?","Keys only / New image / Old image / <b>New and old images</b> (both — for auditing before+after)."],
+["DynamoDB","DAX?","In-memory cache <b>only for DynamoDB</b> → microsecond reads. Read-heavy. Can throttle → add nodes/retries. Writes write-through."],
+["DynamoDB","RCU/WCU math?","1 RCU = 1 strong read ≤4 KB/s (eventual = half). 1 WCU = 1 write ≤1 KB/s. Round up. Ex: 8 KB strong, 10 reads/s = (8/4)×10 = <b>20 RCU</b>."],
+["DynamoDB","TTL facts?","Auto-delete within ~48h (not instant), <b>no WCU cost</b>, items updatable before deletion, deletions appear in Streams."],
+["DynamoDB","DynamoDB vs RDS scaling?","DynamoDB = <b>horizontal</b> (across nodes), schema-less, no joins. RDS = <b>vertical</b> (bigger server), relational, joins."],
+["DB Selection","Service selection map?","<ul><li><b>RDS/Aurora</b> = relational OLTP</li><li><b>Redshift</b> = OLAP warehouse</li><li><b>DynamoDB</b> = NoSQL key-value</li><li><b>Neptune</b> = graph/RDF</li><li><b>Timestream</b> = time-series</li><li><b>DocumentDB</b> = MongoDB</li><li><b>Keyspaces</b> = Cassandra</li></ul>"],
+["DB Selection","Neptune — when?","Managed <b>graph</b> DB. Keywords: relationships, 'friends of friends', property graph, RDF. Scale reads via Read Replicas."],
+["DB Selection","Timestream — when?","<b>Time-series</b> DB (IoT/metrics over time). Hot recent + cheaper older tier, time-series functions."],
+["DB Selection","ElastiCache vs MemoryDB vs DAX?","<b>ElastiCache</b> = volatile cache in front of a DB. <b>MemoryDB for Redis</b> = in-memory DB that's DURABLE + Multi-AZ failover (speed AND no data loss). <b>DAX</b> = cache for DynamoDB only."],
+["DB Selection","RDS vs Redshift trap?","RDS/Aurora = transactional (OLTP). Redshift = warehouse (OLAP). Don't swap them."],
+["Glue","Data Catalog?","Central <b>metadata</b> store. Read by Athena, Spectrum, EMR. Metadata only, not data."],
+["Glue","Crawler?","Scans data, <b>infers schema + partitions</b>, populates Catalog. Discovery only — doesn't transform."],
+["Glue","ETL Job?","The <b>transform</b> engine. Spark (serverless, big) or Python shell (light). Convert formats, clean, join, load."],
+["Glue","Job bookmarks?","Process only <b>new/changed</b> data across runs (no custom tracking). Needs enabled + supported source + job init/commit."],
+["Glue","DataBrew — when?","<b>No-code visual</b> data prep + profiling for analysts. Recipe = steps; schedule a job daily."],
+["Glue","Glue Workflows?","Orchestrate <b>Glue</b> crawlers + jobs in sequence with triggers + failure handling."],
+["Glue","Glue Data Quality?","Define/enforce <b>validation rules</b> (no nulls, email format, ranges) before loading."],
+["Glue","Detect PII vs Find Matches?","<b>Detect PII</b> = find/mask sensitive data (SSN, cards). <b>Find Matches</b> = ML fuzzy dedup/match with NO common key."],
+["Glue","DPU cost tuning?","Reduce cost → fewer DPUs / auto-scaling. Speed up → more DPUs (costs more). Small files → groupFiles/groupSize."],
+["Glue","Glue vs EMR?","<b>Glue</b> = serverless Spark, no cluster (minimal overhead). <b>EMR</b> = you manage cluster, full control/Hadoop. EMR Serverless = middle."],
+["Glue","Glue job → private RDS in a VPC?","Glue <b>JDBC connection</b> (VPC/subnet/SG) + RDS SG inbound from Glue SG on DB port. S3 w/o NAT → <b>S3 gateway VPC endpoint</b> (free)."],
+["EMR","Node types?","<b>Primary</b> (coordinates), <b>Core</b> (tasks + HDFS data), <b>Task</b> (tasks only, stateless → Spot). Cost: Primary+Core On-Demand, Task on Spot."],
+["EMR","What is it for?","Managed clusters for <b>Spark/Hadoop</b> ecosystem (Hive, Presto, HBase, Flink) — large-scale big-data processing."],
+["Orchestration","Which orchestrator?","<ul><li>Coordinate AWS services + errors, serverless → <b>Step Functions</b></li><li>Existing Airflow DAGs → <b>MWAA</b></li><li>Event trigger (S3/cron) + route → <b>EventBridge</b></li><li>Glue-only jobs → <b>Glue Workflows</b></li></ul>"],
+["Orchestration","Step Functions wait patterns?","<b>Request-Response</b> = fire &amp; forget. <b>.sync</b> = wait for an AWS job (Glue/EMR/ECS) to finish, no polling. <b>.waitForTaskToken</b> = pause for external/human callback."],
+["Orchestration","Retry vs Catch vs ResultPath?","<b>Retry</b> = re-attempt same state (backoff). <b>Catch</b> = route to handler on error. <b>ResultPath</b> = where to put output/error in JSON."],
+["Orchestration","Standard vs Express?","<b>Standard</b> = long-running, exactly-once, up to 1 year. <b>Express</b> = high-volume, short, at-least-once."],
+["Orchestration","'Minimal overhead' multi-step workflow — which?","<b>Step Functions.</b> EventBridge+Lambda 'glue' or one big Lambda = custom code = more overhead. 'No polling code' → .sync."],
+["Athena","What is it?","Serverless SQL on S3. Pay per <b>data scanned</b>. Ad-hoc/sporadic, no infra, $0 idle."],
+["Athena","Two biggest cost/perf levers?","<b>Columnar format (Parquet/ORC)</b> + <b>partitioning</b> by filtered columns. Both cut bytes scanned. Also compression + CTAS."],
+["Athena","Partition projection — when?","Many partitions, auto-recognized from a pattern — no crawler, no MSCK REPAIR."],
+["Athena","Workgroups — when?","Isolate queries per team, separate cost tracking, per-query/workgroup <b>scan limits</b>. Can be Spark-enabled."],
+["Table Formats","Iceberg/Hudi/Delta — what they add?","Over S3 files: <b>ACID, time travel</b> (snapshots), <b>schema evolution</b>, row-level updates/deletes/upserts. Iceberg = AWS default."],
+["Table Formats","GDPR 'delete user rows' from S3 data lake?","<b>Open table format (Iceberg)</b> — needs row-level deletes on S3. Plain Parquet/CSV/JSON can't. (RDS has ACID but isn't an S3 lake.)"],
+["Transfer","DataSync vs Transfer Family vs Snow?","<b>DataSync</b> = network file-share transfer (NFS/SMB→S3). <b>Transfer Family</b> = managed SFTP/FTPS/FTP into S3. <b>Snow</b> = offline when network too slow."],
+["Transfer","Snow family by scale?","<b>Snowcone</b> ~8 TB edge. <b>Snowball Edge</b> ~80 TB (Storage Optimized = bulk; Compute Optimized = local processing). <b>Snowmobile</b> = PB/exabyte, truck."],
+["Transfer","Heterogeneous DB migration (Oracle→PostgreSQL)?","<b>SCT</b> converts schema/stored procs + <b>DMS</b> (full load + CDC) migrates and replicates data."],
+["Transfer","DMS vs Snowball for 'big data'?","<b>DMS (CDC)</b> if 'minimal downtime / ongoing replication / keep in sync'. <b>Snowball</b> only if 'one-time' + network too slow + no sync. Snowball = point-in-time, no sync."],
+["Transfer","AWS DMS — what is it?","Migrate/replicate databases (homo or heterogeneous). Full load + CDC for ongoing sync. NOT a transform tool."],
+["Transfer","On-prem DB access from QuickSight without moving it?","<b>AWS Direct Connect</b> (dedicated secure link; data stays on-prem)."],
+["OpenSearch","What is it?","AWS's Elasticsearch/Splunk: full-text <b>search</b> + log analytics + <b>dashboards</b> (OpenSearch Dashboards = Kibana)."],
+["OpenSearch","Primary vs Replica shards?","<b>Primary</b> = the data (split for scale). <b>Replica</b> = copies on other nodes → fault tolerance + faster reads. Replicas serve reads, not writes."],
+["OpenSearch","HA configuration?","<b>Multiple data nodes with primary AND replica shards.</b> Single node = SPOF; primary-only = no redundancy."],
+["OpenSearch","Storage tiers?","<b>Hot</b> (recent, fast) → <b>UltraWarm</b> (older, cheaper, queryable) → <b>Cold</b> (archival)."],
+["SageMaker","Components?","<b>Studio</b> = IDE. <b>Data Wrangler</b> = visual ML data prep. <b>Feature Store</b> = store/serve features. <b>Experiments</b> = track runs. <b>Autopilot</b> = AutoML. <b>Debugger</b> = debug training."],
+["SageMaker","Feature Store online vs offline?","<b>Online</b> = low-latency real-time inference. <b>Offline</b> = batch training/inference."],
+["SageMaker","Training job needs?","<b>IAM role</b> + <b>hyperparameters</b> + <b>S3 location</b> of training data (training channel)."],
+["SageMaker","Access control?","<b>IAM roles</b> + <b>resource-based policies</b> on notebooks/models."],
+["QuickSight","Q vs SPICE?","<b>Q</b> = natural-language questions → visual answers. <b>SPICE</b> = in-memory engine for fast dashboards."],
+["QuickSight","Row-level vs column-level security?","<b>Row-level</b> = restrict rows (e.g., only their region). <b>Column-level</b> = restrict columns (e.g., hide SSN)."],
+["Messaging","SQS vs SNS?","<b>SQS</b> = queue, one consumer, DLQ + redrive for retries. <b>SNS</b> = pub/sub FAN-OUT to many. Pattern: SNS → multiple SQS queues."],
+["Messaging","SQS + Lambda backlog fix?","Increase the <b>batch size</b> (more messages per invocation). NOT reserved concurrency (caps executions → worse)."],
+["Compute","ECS vs EKS vs Fargate?","<b>ECS</b> = AWS-native, no K8s control plane (minimal overhead). <b>EKS</b> = managed Kubernetes. <b>Fargate</b> = serverless containers (both)."],
+["Compute","Secure ECS pulling from ECR?","IAM role with ECR pull perms on the <b>ECS task execution role</b>."],
+["Compute","Lambda state fact?","<b>Stateless</b> — each invocation independent. State across invocations → DynamoDB/S3. Auto-scales."],
+["Security","KMS key types?","<b>Customer managed (CMK)</b> = full control + rotation + audit (CloudTrail) + cross-account. <b>AWS managed</b> = per-service, no cross-account. <b>AWS owned</b> = invisible, no control/audit."],
+["Security","Full control + audit + rotation + cross-account → which key?","<b>Customer managed KMS key (CMK)</b> with auto rotation."],
+["Security","S3 encryption options?","<b>SSE-S3</b> = S3 keys (simple). <b>SSE-KMS</b> = KMS keys (control + audit). <b>SSE-C</b> = you supply keys. In transit = TLS."],
+["Security","Max permissions across ALL org accounts?","<b>Service Control Policies (SCPs)</b> in AWS Organizations — guardrails capping even generous IAM."],
+["Security","IAM Access Analyzer?","Finds overly-permissive / external access (least-privilege check). Audits, doesn't enforce."],
+["Security","Secrets Manager vs Parameter Store?","<b>Secrets Manager</b> = store + AUTO-ROTATE DB credentials (no downtime). <b>Parameter Store</b> = config/secrets, no native DB-cred rotation."],
+["Security","Amazon Macie?","ML discovery/classification of <b>PII</b> in S3 + anomaly detection. For GDPR/HIPAA compliance."],
+["Security","Lake Formation fine-grained + cross-account?","<b>Data filters</b> = row/column security; <b>LF-Tags/TBAC</b> = scalable perms; <b>Blueprints</b> = ingestion; cross-account = <b>AWS RAM</b> + resource links. (IAM/S3 policies can't do row/column.)"],
+["Security","Redshift security features?","Column-level, row-level, <b>dynamic data masking</b>, RBAC (roles), KMS at rest, Enhanced VPC Routing."],
+["Monitoring","CloudWatch vs CloudTrail vs Config?","<b>CloudWatch</b> = metrics/alarms ('how is it running'). <b>CloudTrail</b> = API activity, WHO did what (audit). <b>Config</b> = resource config + compliance ('did it drift', 'S3 not public')."],
+["Monitoring","Detect config change, see who, alert?","<b>Config</b> (change/compliance) + <b>CloudTrail</b> (who) + <b>SNS</b>/CloudWatch Alarm (notify)."],
+["Monitoring","GuardDuty vs Config?","<b>GuardDuty</b> = threat detection (malicious behavior). <b>Config</b> = config tracking/compliance. Not the same."],
+["Monitoring","Systems Manager — when?","Ops management: Patch Manager, run commands, inventory, Session Manager, Parameter Store. 'Automate patching/ops across instances'."],
+["Patterns","'Can't predict traffic/access' → ?","The <b>on-demand/automatic</b> option: DynamoDB on-demand, Kinesis on-demand, S3 Intelligent-Tiering, Redshift Serverless."],
+["Patterns","IaC for serverless resources (Glue/Lambda/S3)?","<b>AWS SAM</b> (serverless-focused, extends CloudFormation) or CloudFormation. SAM preferred for serverless."],
+["Patterns","DynamoDB changes → analytics/search?","Streams (New/New&amp;Old image) → Lambda → Firehose → Redshift. For full-text search → OpenSearch."],
+["Patterns","IoT real-time ingest+process+store, minimal ops?","Kinesis Data Streams + Lambda/Flink + Firehose → S3. Timestream if a time-series DB is needed."]
+];
+
+// ---- Spaced repetition engine ----
+// Each card has a "box" (0..5). Higher box = seen less often / eventually retired.
+// "Didn't know" -> box 0, re-queued soon. "Knew it" -> box+1, re-queued further out.
+// A card with box >= RETIRE is considered learned and drops out of the active round.
+const RETIRE = 4;                 // knew it this many times in a row -> retired
+const GAP = [2, 4, 8, 16, 999];   // how many cards ahead to re-insert, per box level
+const STORE_KEY = "aws_dea_fc_v1";
+
+let state = load();
+function load(){
+  try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); if (s && s.boxes && s.boxes.length === CARDS.length) return s; } catch(e){}
+  return freshState("ALL");
+}
+function freshState(filter){
+  const boxes = CARDS.map(()=>0);
+  return { boxes, queue: buildQueue(boxes, filter), filter, done:0 };
+}
+function buildQueue(boxes, filter){
+  let idx = CARDS.map((c,i)=>i).filter(i => filter==="ALL" || CARDS[i][0]===filter);
+  // shuffle initial order
+  for(let i=idx.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [idx[i],idx[j]]=[idx[j],idx[i]]; }
+  return idx;
+}
+function save(){ try{ localStorage.setItem(STORE_KEY, JSON.stringify(state)); }catch(e){} }
+
+let showingAnswer=false;
+
+const el = id => document.getElementById(id);
+
+function buildFilter(){
+  const topics=[...new Set(CARDS.map(c=>c[0]))];
+  el('filter').innerHTML = '<option value="ALL">All topics</option>' + topics.map(t=>`<option value="${t}">${t}</option>`).join('');
+  el('filter').value = state.filter;
+}
+
+function activeRemaining(){
+  // cards still in queue that aren't retired
+  return state.queue.filter(i => state.boxes[i] < RETIRE).length;
+}
+
+function render(){
+  const total = CARDS.filter(c => state.filter==="ALL" || c[0]===state.filter).length;
+  const retired = CARDS.filter((c,i)=> (state.filter==="ALL"||c[0]===state.filter) && state.boxes[i]>=RETIRE).length;
+  el('stats').textContent = `Learned ${retired}/${total}  ·  in rotation: ${total-retired}`;
+
+  // find next non-retired card in queue
+  while(state.queue.length && state.boxes[state.queue[0]] >= RETIRE){ state.queue.shift(); }
+
+  if(state.queue.length === 0){
+    el('card').innerHTML = `<div class="done"><h2>🎉 All done!</h2><p>You've learned every card in this set. Tap "Reset progress" to start over, or switch topics above.</p></div>`;
+    el('grade').style.display='none'; el('flipNote').textContent=''; save(); return;
+  }
+
+  const i = state.queue[0];
+  const c = CARDS[i];
+  el('card').innerHTML =
+    `<span class="tag">${c[0]}</span><span class="side">${showingAnswer?'Answer':'Question'}</span>`+
+    (showingAnswer? `<div class="ans">${c[2]}</div>` : `<div class="q">${c[1]}</div>`)+
+    (showingAnswer? '' : `<div class="hint">tap to reveal answer</div>`);
+  el('grade').style.display = showingAnswer ? 'flex' : 'none';
+  el('flipNote').textContent = showingAnswer ? 'How did you do?' : '';
+  save();
+}
+
+function flip(){ if(state.queue.length===0) return; showingAnswer=!showingAnswer; render(); }
+
+function grade(knew){
+  const i = state.queue.shift();
+  if(knew){ state.boxes[i] = Math.min(state.boxes[i]+1, RETIRE); }
+  else { state.boxes[i] = 0; }
+  // re-insert if not retired
+  if(state.boxes[i] < RETIRE){
+    const gap = Math.min(GAP[state.boxes[i]] || 999, state.queue.length);
+    state.queue.splice(gap, 0, i);
+  }
+  showingAnswer=false; render();
+}
+
+el('card').addEventListener('click', flip);
+el('yesBtn').addEventListener('click', e=>{ e.stopPropagation(); grade(true); });
+el('noBtn').addEventListener('click', e=>{ e.stopPropagation(); grade(false); });
+el('filter').addEventListener('change', ()=>{ state = freshState(el('filter').value); showingAnswer=false; save(); render(); });
+el('shuffleBtn').addEventListener('click', ()=>{ state.queue = buildQueue(state.boxes, state.filter).filter(i=>state.boxes[i]<RETIRE); showingAnswer=false; render(); });
+el('resetBtn').addEventListener('click', ()=>{ if(confirm('Reset all progress for this topic?')){ state = freshState(state.filter); showingAnswer=false; save(); render(); } });
+
+buildFilter();
+render();
+</script>
+</body>
+</html>
