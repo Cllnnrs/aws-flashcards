@@ -306,7 +306,7 @@ function renderPipe() {
 
 // ---------- eliminate the option ----------
 function startElim() {
-  E = { items: shuf(ELIM.map(function (_, i) { return i; })), idx: 0, ok: 0, answered: false, pick: -1 };
+  E = { items: shuf(ELIM.map(function (_, i) { return i; })).slice(0, 12), idx: 0, ok: 0, answered: false, pick: -1 };
   E.ord = shuf(ELIM[E.items[0]].reqs.map(function (_, i) { return i; }));
   view = 'elim'; render();
 }
@@ -491,13 +491,15 @@ function renderHome() {
   h += '<button class="pill" onclick="startSession(false,3)">D3 22%</button><button class="pill" onclick="startSession(false,4)">D4 18%</button></div></div>';
 
   h += '<div class="card"><div class="meta">Quick drills</div><div class="sub">Phrase in, service out. Two minutes.</div>';
-  h += '<button class="pill wide" onclick="startDrill(\'all\')">Mixed round (all pairs)</button>';
+  h += '<button class="pill wide" onclick="startDrill(\'all\')">Mixed round (all ' + DRILLS.length + ' sets)</button>';
+  h += '<details><summary>Pick one set (' + DRILLS.length + ')</summary>';
   DRILLS.forEach(function (s) { h += '<button class="pill wide" onclick="startDrill(\'' + s.id + '\')">' + esc(s.title) + '</button>'; });
-  h += '</div>';
+  h += '</details></div>';
 
   h += '<div class="card"><div class="meta">Build the pipeline</div><div class="sub">Pick one service for each stage.</div>';
+  h += '<details><summary>Pick a pipeline (' + PIPES.length + ')</summary>';
   PIPES.forEach(function (p) { h += '<button class="pill wide" onclick="startPipe(\'' + p.id + '\')">' + esc(p.title) + '</button>'; });
-  h += '</div>';
+  h += '</details></div>';
 
   h += '<div class="card"><div class="meta">Eliminate the option</div><div class="sub">Find the requirement a solution fails.</div>';
   h += '<button class="pill wide" onclick="startElim()">Start a round</button></div>';
