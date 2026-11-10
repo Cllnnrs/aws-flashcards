@@ -225,5 +225,186 @@ const QUESTIONS = [
       O("Use AWS DMS with full load plus change data capture, and cut over when the target has caught up.", true, "Keeps source and target in sync until cutover, so downtime is minimal.")
     ],
     r: "Same engine, minimal downtime: DMS full load plus CDC. SCT only when engines differ."
+  },
+
+  // ---------- Syntax and snippets (oc: true shows the options in monospace) ----------
+  {
+    id: "syn-dqdl", d: 1, t: "Syntax", oc: true,
+    q: "A data engineer is writing an AWS Glue Data Quality ruleset (DQDL) for a customers table. The customer_id column must have no missing values. The email column must match a pattern for valid addresses. The status column may contain only ACTIVE, INACTIVE or PENDING. Which ruleset is correct?",
+    o: [
+      O(`Rules = [
+  IsComplete "customer_id",
+  ColumnValues "email" matches "[^@]+@[^@]+[.][a-z]+",
+  ColumnValues "status" in ["ACTIVE","INACTIVE","PENDING"]
+]`, true, "Valid DQDL: IsComplete for no missing values, matches for the pattern, and in with a bracketed list."),
+      O(`Rules = [
+  NotNull "customer_id",
+  Pattern "email" "[^@]+@[^@]+[.][a-z]+",
+  AllowedValues "status" ["ACTIVE","INACTIVE","PENDING"]
+]`, false, "NotNull, Pattern and AllowedValues are not DQDL rule types."),
+      O(`Rules = [
+  Completeness "customer_id" > 0.5,
+  ColumnValues "email" matches "[^@]+@[^@]+[.][a-z]+",
+  ColumnValues "status" in ["ACTIVE","INACTIVE","PENDING"]
+]`, false, "Completeness above 0.5 still allows half the values to be missing. No missing values needs IsComplete or Completeness = 1.0."),
+      O(`Rules = [
+  IsComplete "customer_id",
+  ColumnValues "email" matches "[^@]+@[^@]+[.][a-z]+",
+  ColumnValues "status" in ("ACTIVE","INACTIVE","PENDING")
+]`, false, "The allowed-values list must use square brackets, not parentheses.")
+    ],
+    r: "DQDL: Rules = [ ... ]. IsComplete for no nulls, ColumnValues with matches or in [ ... ] for patterns and lists."
+  },
+  {
+    id: "syn-iam", d: 4, t: "Syntax",
+    q: "A Glue job reads known objects under the daily/ prefix of the bucket analytics-raw and writes results under the out/ prefix of the bucket analytics-curated. The company follows least-privilege practice. Which permissions should the job's role have?",
+    o: [
+      O("Allow s3:* on arn:aws:s3:::analytics-raw and arn:aws:s3:::analytics-curated and their objects.", false, "Far more than needed. Full S3 access on both buckets breaks least privilege."),
+      O("Allow s3:GetObject and s3:PutObject on arn:aws:s3:::analytics-raw/daily/* and arn:aws:s3:::analytics-curated/out/*.", false, "Allows writing to the raw prefix and reading from the curated prefix, which the job does not need."),
+      O("Allow s3:GetObject on arn:aws:s3:::analytics-raw/daily/* and s3:ListBucket on arn:aws:s3:::analytics-raw. Allow s3:PutObject on arn:aws:s3:::analytics-curated/out/*.", true, "Each action is limited to the one prefix that needs it. Object actions use the /* object ARN, and listing uses the bucket ARN."),
+      O("Allow s3:GetObject on arn:aws:s3:::analytics-raw and s3:PutObject on arn:aws:s3:::analytics-curated.", false, "Bucket ARNs do not match objects. Object actions need an ARN ending in /*.")
+    ],
+    r: "Least privilege: only the actions needed, on the narrowest resource. Object actions use bucket/prefix/*."
+  },
+  {
+    id: "syn-retry", d: 1, t: "Syntax", oc: true,
+    q: "A Step Functions task calling a Lambda function should be retried up to 3 times when any error occurs. The first wait is 5 seconds and each following wait doubles. Which definition does this?",
+    o: [
+      O(`"Retry": [{
+  "ErrorEquals": ["States.ALL"],
+  "IntervalSeconds": 5,
+  "BackoffRate": 1.0,
+  "MaxAttempts": 3
+}]`, false, "BackoffRate 1.0 keeps the wait constant at 5 seconds."),
+      O(`"Retry": [{
+  "ErrorEquals": ["States.ALL"],
+  "IntervalSeconds": 5,
+  "BackoffRate": 2.0,
+  "MaxAttempts": 3
+}]`, true, "IntervalSeconds is the first wait, BackoffRate 2.0 doubles it, MaxAttempts is the number of retries."),
+      O(`"Catch": [{
+  "ErrorEquals": ["States.ALL"],
+  "Next": "RetryState"
+}]`, false, "Catch routes to another state after failure. It does not retry the same task with backoff."),
+      O(`"Retry": [{
+  "ErrorEquals": ["States.ALL"],
+  "IntervalSeconds": 5,
+  "BackoffRate": 2.0,
+  "MaxAttempts": 1
+}]`, false, "MaxAttempts 1 retries only once.")
+    ],
+    r: "Retry fields: ErrorEquals, IntervalSeconds, BackoffRate (multiplier), MaxAttempts. Catch is for routing after failure."
+  },
+  {
+    id: "syn-ctas", d: 3, t: "Syntax", oc: true,
+    q: "A data engineer wants one Athena statement that creates a new table from a query, stored as Parquet and partitioned by sale_date. Which statement does this?",
+    o: [
+      O(`CREATE EXTERNAL TABLE sales_parquet
+PARTITIONED BY (sale_date)
+STORED AS PARQUET
+AS SELECT item, amount, sale_date FROM sales_csv;`, false, "CREATE EXTERNAL TABLE ... AS SELECT is not valid Athena syntax. CTAS is CREATE TABLE ... AS."),
+      O(`CREATE TABLE sales_parquet
+WITH (format = 'PARQUET',
+      partitioned_by = ARRAY['sale_date'],
+      external_location = 's3://my-bucket/sales_parquet/')
+AS SELECT item, amount, sale_date FROM sales_csv;`, true, "This is CTAS. The partition column comes last in the SELECT."),
+      O(`INSERT OVERWRITE DIRECTORY 's3://my-bucket/sales_parquet/'
+STORED AS PARQUET
+SELECT item, amount, sale_date FROM sales_csv;`, false, "That is Hive syntax and does not create an Athena table."),
+      O(`UNLOAD (SELECT item, amount, sale_date FROM sales_csv)
+TO 's3://my-bucket/sales_parquet/'
+WITH (format = 'PARQUET', partitioned_by = ARRAY['sale_date']);`, false, "UNLOAD writes files but does not create a table.")
+    ],
+    r: "Athena CTAS: CREATE TABLE ... WITH (format, partitioned_by, external_location) AS SELECT, partition column last."
+  },
+  {
+    id: "syn-copy", d: 2, t: "Syntax", oc: true,
+    q: "A data engineer must load gzip-compressed CSV files from S3 into a Redshift table. Following security best practice, the load should use an IAM role. Which command is correct?",
+    o: [
+      O(`COPY sales
+FROM 's3://my-bucket/sales/'
+CREDENTIALS 'aws_access_key_id=AKIA...;aws_secret_access_key=...'
+FORMAT AS CSV GZIP;`, false, "Works, but it puts long-lived access keys in the command. A role is the best practice."),
+      O(`INSERT INTO sales
+SELECT * FROM 's3://my-bucket/sales/';`, false, "Not valid. INSERT cannot read from an S3 path."),
+      O(`COPY sales
+FROM 's3://my-bucket/sales/'
+IAM_ROLE 'arn:aws:iam::123456789012:role/RedshiftLoad'
+FORMAT AS CSV GZIP;`, true, "COPY with IAM_ROLE is the standard, secure bulk load."),
+      O(`UNLOAD ('SELECT * FROM sales')
+TO 's3://my-bucket/sales/'
+IAM_ROLE 'arn:aws:iam::123456789012:role/RedshiftLoad';`, false, "UNLOAD exports from Redshift to S3. It is the opposite direction.")
+    ],
+    r: "Load into Redshift: COPY ... IAM_ROLE. Export out: UNLOAD."
+  },
+
+  // ---------- Calculations ----------
+  {
+    id: "calc-shards", d: 1, t: "Calculations",
+    q: "A provisioned-mode Kinesis data stream will receive 2,500 records per second, and each record is about 3 KB. Consumers use enhanced fan-out. What is the minimum number of shards needed to absorb the writes?",
+    o: [
+      O("3", false, "That uses only the records limit (2,500 / 1,000, rounded up). The bytes limit is larger here."),
+      O("5", false, "Does not match either write limit."),
+      O("8", true, "About 7,500 KB per second is roughly 7.3 MB per second, so 8 shards for bytes. Records need only 3. Take the larger."),
+      O("15", false, "Far above either limit.")
+    ],
+    r: "Shards = the larger of (MB per second in, at 1 MB per shard) and (records per second, at 1,000 per shard), rounded up."
+  },
+  {
+    id: "calc-rcu", d: 2, t: "Calculations",
+    q: "A provisioned DynamoDB table holds items averaging 6 KB. The application makes 200 eventually consistent reads per second against single items. How many read capacity units are needed?",
+    o: [
+      O("100", false, "Too low. Each 6 KB read still needs one RCU when eventually consistent, so 200 reads need 200."),
+      O("400", false, "That is the strongly consistent amount (2 RCUs per 6 KB read)."),
+      O("200", true, "6 KB rounds up to 8 KB, which is 2 RCUs for a strongly consistent read and 1 RCU for an eventually consistent read. 200 reads need 200 RCUs."),
+      O("600", false, "Does not match the calculation.")
+    ],
+    r: "RCU: round the item size up to 4 KB blocks, then halve it for eventually consistent reads, then multiply by reads per second."
+  },
+
+  // ---------- More services ----------
+  {
+    id: "cloudtrail-lake", d: 4, t: "Monitoring",
+    q: "A security team needs to run SQL queries over three years of API activity from many AWS accounts, in one place, with as little setup as possible. Which solution should the data engineer choose?",
+    o: [
+      O("Send CloudTrail logs to S3 and build Athena tables over them in each account.", false, "Works, but you create and maintain the tables, partitions and cross-account access yourself."),
+      O("Use an AWS CloudTrail Lake event data store with SQL queries.", true, "CloudTrail Lake stores events centrally and lets you query them with SQL. No tables to build."),
+      O("Stream CloudTrail into CloudWatch Logs and use Logs Insights across accounts.", false, "Possible, but long retention and multi-account querying take more setup and cost."),
+      O("Use AWS Config advanced queries.", false, "Config queries resource configuration, not API activity.")
+    ],
+    r: "Central SQL queries over CloudTrail events: CloudTrail Lake."
+  },
+  {
+    id: "lambda-efs", d: 1, t: "Lambda",
+    q: "A Lambda function needs read access to a 4 GB reference dataset. Many concurrent invocations must read the same files, and the function should not download the data on every invocation. Which solution meets these requirements?",
+    o: [
+      O("Package the dataset in a Lambda layer.", false, "Layers have a size limit far below 4 GB."),
+      O("Copy the dataset into /tmp at the start of each invocation.", false, "Each invocation has its own /tmp, so every environment downloads the data again."),
+      O("Download the dataset from S3 on each invocation.", false, "Works, but it is slow and repeated on every invocation."),
+      O("Store the dataset in Amazon EFS and mount the file system in the function.", true, "EFS is shared across concurrent invocations and mounts into Lambda.")
+    ],
+    r: "Large shared files for Lambda: mount Amazon EFS."
+  },
+  {
+    id: "s3-object-lock", d: 4, t: "S3",
+    q: "A financial company must keep trade records in S3 for seven years. Nobody, including account administrators, may delete or change them during that time. Which configuration meets this requirement?",
+    o: [
+      O("Enable versioning and deny DeleteObject in the bucket policy.", false, "An administrator can change the bucket policy or delete versions."),
+      O("Use S3 Object Lock in governance mode with a seven-year retention.", false, "Users with the bypass permission can override governance mode."),
+      O("Use S3 Object Lock in compliance mode with a seven-year retention.", true, "In compliance mode no one, including the root user, can delete or overwrite protected versions during retention."),
+      O("Move the objects to S3 Glacier Deep Archive with a lifecycle rule.", false, "Lifecycle rules move objects between storage classes. They do not prevent deletion.")
+    ],
+    r: "WORM that even admins cannot bypass: S3 Object Lock in compliance mode."
+  },
+  {
+    id: "glue-dpu-sizing", d: 3, t: "Glue",
+    q: "A Glue job is set to 10 DPUs but regularly scales to several hundred and runs for a long time. A data engineer must work out the right DPU capacity. Where should they look?",
+    o: [
+      O("The CloudWatch Logs for the job, searching for the text DPU.", false, "Job logs do not record DPU consumption."),
+      O("The visual ETL section of the Glue console.", false, "That is for building and editing jobs, not for capacity analysis."),
+      O("The aggregate Glue metrics in the CloudWatch console.", false, "Gives history, but not the per-run profile needed to size DPUs."),
+      O("The job run monitoring section of the Glue console, using the profiled metrics from previous runs.", true, "This view profiles previous runs and shows how many workers the job actually needs.")
+    ],
+    r: "Right-sizing Glue capacity: job run monitoring and profiled metrics."
   }
 ];

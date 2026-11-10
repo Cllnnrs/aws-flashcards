@@ -16,14 +16,15 @@
     max-width: 640px; margin: 0 auto;
   }
   h1 { font-size: 18px; color: #ff9900; margin: 16px 0 4px; }
-  .sub { color: #8b98a5; font-size: 13px; margin-bottom: 14px; }
+  .sub { color: #8b98a5; font-size: 13px; margin-bottom: 10px; }
   .card { background: #1a2027; border: 1px solid #2f3b47; border-radius: 14px; padding: 14px; margin: 12px 0; }
   .big { width: 100%; padding: 16px; font-size: 17px; font-weight: 700; border: none; border-radius: 12px; color: #fff; margin: 6px 0; }
   .go { background: #2e8b57; } .alt { background: #3a5a8a; } .warn { background: #8a5a2e; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; }
   .pill { flex: 1; min-width: 70px; padding: 12px 6px; text-align: center; font-size: 14px; font-weight: 600;
     background: #232d37; border: 1px solid #2f3b47; border-radius: 10px; color: #e6e6e6; }
-  .stat { display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0; }
+  .wide { width: 100%; margin: 4px 0; text-align: left; padding: 12px; }
+  .stat { display: flex; justify-content: space-between; font-size: 14px; padding: 3px 0; gap: 10px; }
   .stat b { color: #ffd27a; }
   .count { font-size: 30px; font-weight: 800; color: #ff9900; }
   .top { display: flex; justify-content: space-between; align-items: center; margin: 12px 0 6px; color: #8b98a5; font-size: 14px; }
@@ -34,14 +35,22 @@
   .opt { display: flex; gap: 10px; padding: 14px 12px; margin: 8px 0; background: #1a2027; border: 2px solid #2f3b47;
     border-radius: 12px; font-size: 15px; min-height: 56px; }
   .opt > b { color: #ff9900; min-width: 16px; }
+  .opt > div { min-width: 0; flex: 1; }
   .opt.sel { border-color: #79b8ff; background: #1d2a38; }
   .opt.good { border-color: #2e8b57; background: #17291f; }
   .opt.bad { border-color: #b3443b; background: #2b1a1a; }
   .opt.missed { border-color: #c9a227; }
   .why { font-size: 13px; color: #b6c2cd; margin-top: 6px; }
+  .mono, pre.code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+  pre.code { background: #0b0f13; border: 1px solid #2f3b47; border-radius: 8px; padding: 10px; margin: 6px 0 12px; }
   .banner { padding: 10px 12px; border-radius: 10px; font-weight: 700; margin: 6px 0; }
   .banner.ok { background: #17291f; color: #5fd48a; } .banner.no { background: #2b1a1a; color: #e07a7a; }
   .rule { background: #232d37; border-left: 4px solid #ff9900; padding: 10px 12px; border-radius: 8px; font-size: 14px; margin: 10px 0; }
+  .phrase { font-size: 19px; font-weight: 600; margin: 10px 0 14px; }
+  .dots { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }
+  .dot { width: 34px; height: 34px; border-radius: 8px; background: #232d37; border: 1px solid #2f3b47; color: #e6e6e6; font-size: 13px; }
+  .dot.done { background: #1d2a38; border-color: #79b8ff; } .dot.here { border-color: #ff9900; }
+  .timer { font-size: 20px; font-weight: 800; color: #ffd27a; }
   button:disabled { opacity: .4; }
   input[type=date], textarea { width: 100%; padding: 10px; background: #0f1419; color: #e6e6e6; border: 1px solid #2f3b47; border-radius: 8px; font-size: 14px; }
   textarea { height: 90px; font-family: monospace; }
@@ -52,15 +61,20 @@
 <body>
 <div id="app"></div>
 <script src="questions.js"></script>
+<script src="tools.js"></script>
 <script>
 const KEY = 'dea_trainer_v1';
 const DAY = 864e5;
 const INT = [0, 1, 2, 4, 7]; // days until a question is due again, by box
+const EXAM_N = 20, EXAM_MIN = 40;
 
 function load() {
   let s = {};
   try { s = JSON.parse(localStorage.getItem(KEY)) || {}; } catch (e) {}
   s.q = s.q || {}; s.examDate = s.examDate || ''; s.session = s.session || null;
+  s.reasons = s.reasons || { fact: 0, misread: 0, plausible: 0 };
+  s.drill = s.drill || {}; s.elim = s.elim || { n: 0, ok: 0 }; s.pipe = s.pipe || {};
+  s.hist = s.hist || []; s.exam = s.exam || null;
   return s;
 }
 let S = load();
@@ -69,7 +83,8 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e
 const app = document.querySelector('#app');
 const byId = {};
 QUESTIONS.forEach(function (q) { byId[q.id] = q; });
-let view = 'home', sel = [], answered = false, lastOk = false, guessMarked = false;
+let view = 'home', sel = [], answered = false, lastOk = false, guessMarked = false, reasonDone = false;
+let D = null, P = null, E = null;
 
 function esc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function shuf(a) {
@@ -78,16 +93,61 @@ function shuf(a) {
   return a;
 }
 function needOf(q) { return q.o.filter(function (o) { return o.c; }).length; }
+function correctIdx(q) { const c = []; q.o.forEach(function (o, i) { if (o.c) c.push(i); }); return c; }
+function sameSet(a, b) { return a.length === b.length && a.every(function (x) { return b.indexOf(x) >= 0; }); }
 function curQ() { return byId[S.session.ids[S.session.idx]]; }
+function pct(a, b) { return b ? Math.round(100 * a / b) + '%' : '-'; }
 
-// ---------- session building ----------
+// ---------- shared pieces ----------
+function stemHtml(q) {
+  let h = '<div class="stem">' + esc(q.q) + '</div>';
+  if (q.code) h += '<pre class="code">' + esc(q.code) + '</pre>';
+  return h;
+}
+function optHtml(q, order, chosen, show, clickable) {
+  let h = '';
+  order.forEach(function (i, p) {
+    const o = q.o[i];
+    let cls = 'opt';
+    if (show) {
+      if (o.c && chosen.indexOf(i) >= 0) cls += ' good';
+      else if (o.c) cls += ' missed';
+      else if (chosen.indexOf(i) >= 0) cls += ' bad';
+    } else if (chosen.indexOf(i) >= 0) cls += ' sel';
+    const txt = q.oc ? '<span class="mono">' + esc(o.t) + '</span>' : esc(o.t);
+    h += '<div class="' + cls + '"' + (clickable ? ' onclick="' + clickable + '(' + i + ')"' : '') + '><b>' + 'ABCDE'[p] + '</b><div>' + txt;
+    if (show) h += '<div class="why">' + (o.c ? 'Right: ' : 'Why not: ') + esc(o.w) + '</div>';
+    h += '</div></div>';
+  });
+  return h;
+}
+const REASONS = [['fact', 'I did not know the fact'], ['misread', 'I misread the requirement'], ['plausible', 'I picked a plausible option']];
+function reasonHtml() {
+  if (reasonDone) return '<div class="sub">Noted.</div>';
+  let h = '<div class="card"><div class="meta">Why did you miss it?</div>';
+  REASONS.forEach(function (r) { h += '<button class="pill wide" onclick="setReason(\'' + r[0] + '\')">' + r[1] + '</button>'; });
+  return h + '</div>';
+}
+function setReason(k) { S.reasons[k] = (S.reasons[k] || 0) + 1; reasonDone = true; save(); render(); }
+function goHome() { view = 'home'; render(); }
+function updateRecord(q, ok) {
+  const now = Date.now();
+  const r = S.q[q.id] || { box: 0, due: 0, missed: false, n: 0 };
+  r.n++;
+  if (ok) { r.box = Math.min(r.box + 1, 4); r.due = now + INT[r.box] * DAY; }
+  else { r.box = 0; r.due = now; r.missed = true; }
+  S.q[q.id] = r;
+  return r;
+}
+
+// ---------- practice sessions ----------
 function buildIds(weak, domain) {
   const now = Date.now();
   const pool = QUESTIONS.filter(function (q) {
     if (domain && q.d !== domain) return false;
     if (weak) {
       const r = S.q[q.id];
-      if (!(q.d === 1 || q.d === 3 || q.t === 'Monitoring' || (r && r.missed))) return false;
+      if (!(q.d === 1 || q.d === 3 || q.t === 'Monitoring' || q.t === 'Syntax' || (r && r.missed))) return false;
     }
     return true;
   });
@@ -106,8 +166,6 @@ function startSession(weak, domain) {
   save(); sel = []; answered = false; view = 'quiz'; render();
 }
 function resume() { sel = []; answered = false; view = 'quiz'; render(); }
-
-// ---------- answering ----------
 function pick(i) {
   if (answered) return;
   const q = curQ(), need = needOf(q);
@@ -123,20 +181,12 @@ function submit() {
 }
 function grade() {
   const q = curQ(), se = S.session;
-  const correct = [];
-  q.o.forEach(function (o, i) { if (o.c) correct.push(i); });
-  const ok = correct.length === sel.length && correct.every(function (i) { return sel.indexOf(i) >= 0; });
-  lastOk = ok; answered = true; guessMarked = false;
-  const now = Date.now();
-  const r = S.q[q.id] || { box: 0, due: 0, missed: false, n: 0 };
-  r.n++;
+  const ok = sameSet(correctIdx(q), sel);
+  lastOk = ok; answered = true; guessMarked = false; reasonDone = false;
   if (!(q.id in se.res)) se.res[q.id] = ok;
-  if (ok) { r.box = Math.min(r.box + 1, 4); r.due = now + INT[r.box] * DAY; }
-  else {
-    r.box = 0; r.due = now; r.missed = true;
-    if (!se.rq[q.id]) { se.rq[q.id] = 1; se.ids.splice(Math.min(se.idx + 4, se.ids.length), 0, q.id); }
-  }
-  S.q[q.id] = r; save(); render();
+  updateRecord(q, ok);
+  if (!ok && !se.rq[q.id]) { se.rq[q.id] = 1; se.ids.splice(Math.min(se.idx + 4, se.ids.length), 0, q.id); }
+  save(); render();
 }
 function markGuess() {
   const q = curQ(), r = S.q[q.id];
@@ -150,97 +200,259 @@ function next() {
   if (se.idx >= se.ids.length) { se.done = true; view = 'summary'; }
   save(); render();
 }
-function goHome() { view = 'home'; render(); }
 
-// ---------- views ----------
-function render() {
-  if (view === 'quiz') app.innerHTML = renderQuiz();
-  else if (view === 'summary') app.innerHTML = renderSummary();
-  else app.innerHTML = renderHome();
+// ---------- confusable-pair drills ----------
+function startDrill(setId) {
+  const sets = setId === 'all' ? DRILLS : DRILLS.filter(function (s) { return s.id === setId; });
+  let items = [];
+  sets.forEach(function (s) { s.items.forEach(function (it, i) { items.push({ set: s.id, i: i, retry: false }); }); });
+  D = { items: shuf(items).slice(0, 12), idx: 0, ok: 0, first: 0, answered: false, pick: -1, done: false };
+  view = 'drill'; render();
 }
-
-function daysLeft() {
-  if (!S.examDate) return null;
-  return Math.ceil((new Date(S.examDate + 'T00:00:00') - new Date()) / DAY);
-}
-function setExam(v) { S.examDate = v; save(); render(); }
-
-function renderHome() {
-  const now = Date.now();
-  const ids = Object.keys(S.q);
-  const mastered = ids.filter(function (k) { return S.q[k].box >= 3; }).length;
-  const dueNow = ids.filter(function (k) { return S.q[k].due <= now; }).length + (QUESTIONS.length - ids.length);
-  const dl = daysLeft();
-  let h = '<h1>DEA-C01 Trainer</h1><div class="sub">Short situational sessions. 10 questions, about 5 minutes.</div>';
-  h += '<div class="card"><div class="meta">Exam date</div>';
-  h += '<input type="date" value="' + esc(S.examDate) + '" onchange="setExam(this.value)">';
-  if (dl !== null) h += '<div style="margin-top:8px"><span class="count">' + (dl < 0 ? 0 : dl) + '</span> days left</div>';
-  h += '</div>';
-  if (S.session && !S.session.done) {
-    h += '<button class="big alt" onclick="resume()">Resume session (' + (S.session.idx + 1) + ' of ' + S.session.ids.length + ')</button>';
+function drillSet(id) { return DRILLS.filter(function (s) { return s.id === id; })[0]; }
+function drillAnswer(l) {
+  if (D.answered) return;
+  const it = D.items[D.idx], s = drillSet(it.set), item = s.items[it.i];
+  const ok = l === item.a;
+  D.answered = true; D.pick = l;
+  if (!it.retry) {
+    D.first++; if (ok) D.ok++;
+    const st = S.drill[s.id] || { n: 0, ok: 0 };
+    st.n++; if (ok) st.ok++; S.drill[s.id] = st; save();
   }
-  h += '<button class="big go" onclick="startSession(false,0)">Start session</button>';
-  h += '<button class="big warn" onclick="startSession(true,0)">Weak spots (Domains 1 and 3, monitoring, missed)</button>';
-  h += '<div class="card"><div class="meta">By domain</div><div class="row">';
-  h += '<button class="pill" onclick="startSession(false,1)">D1 34%</button>';
-  h += '<button class="pill" onclick="startSession(false,2)">D2 26%</button>';
-  h += '<button class="pill" onclick="startSession(false,3)">D3 22%</button>';
-  h += '<button class="pill" onclick="startSession(false,4)">D4 18%</button></div></div>';
-  h += '<div class="card"><div class="stat"><span>Questions in bank</span><b>' + QUESTIONS.length + '</b></div>';
-  h += '<div class="stat"><span>Ready to practice now</span><b>' + dueNow + '</b></div>';
-  h += '<div class="stat"><span>Mastered</span><b>' + mastered + '</b></div></div>';
-  h += '<div class="card"><a href="flashcards.html">Open the old flashcards</a></div>';
-  h += '<details class="card"><summary>Backup progress</summary>';
-  h += '<div class="sub">Progress is stored only in this browser. Copy it somewhere safe.</div>';
-  h += '<button class="pill" style="width:100%" onclick="exportData()">Show backup text</button>';
-  h += '<textarea id="bk" placeholder="Backup text appears here. Paste a backup here to restore."></textarea>';
-  h += '<button class="pill" style="width:100%;margin-top:8px" onclick="importData()">Restore from text</button>';
-  h += '<button class="pill" style="width:100%;margin-top:8px" onclick="resetAll()">Reset all progress</button></details>';
+  if (!ok && !it.retry) D.items.push({ set: it.set, i: it.i, retry: true });
+  render();
+}
+function drillNext() {
+  D.idx++; D.answered = false; D.pick = -1;
+  if (D.idx >= D.items.length) { D.done = true; }
+  render();
+}
+function renderDrill() {
+  if (D.done) {
+    let h = '<h1>Drill done</h1><div class="card"><span class="count">' + D.ok + ' / ' + D.first + '</span> right on the first try</div>';
+    h += '<button class="big go" onclick="startDrill(\'all\')">Another mixed round</button><button class="big alt" onclick="goHome()">Home</button>';
+    return h;
+  }
+  const it = D.items[D.idx], s = drillSet(it.set), item = s.items[it.i];
+  let h = '<div class="top"><button class="link" onclick="goHome()">Home</button><span>' + (D.idx + 1) + ' / ' + D.items.length + '</span></div>';
+  h += '<div class="meta">' + esc(s.title) + '</div><div class="phrase">' + esc(item.p) + '</div>';
+  s.labels.forEach(function (lab, l) {
+    let cls = 'pill wide';
+    let style = '';
+    if (D.answered) {
+      if (l === item.a) style = ' style="border-color:#2e8b57;background:#17291f"';
+      else if (l === D.pick) style = ' style="border-color:#b3443b;background:#2b1a1a"';
+    }
+    h += '<button class="' + cls + '"' + style + ' onclick="drillAnswer(' + l + ')">' + esc(lab) + '</button>';
+  });
+  if (D.answered) {
+    h += '<div class="banner ' + (D.pick === item.a ? 'ok' : 'no') + '">' + (D.pick === item.a ? 'Correct' : 'Not quite') + '</div>';
+    h += '<div class="rule">' + esc(item.w) + '</div>';
+    h += '<button class="big go" onclick="drillNext()">Next</button>';
+  }
   return h;
 }
-function exportData() { document.querySelector('#bk').value = JSON.stringify({ q: S.q, examDate: S.examDate }); }
-function importData() {
-  try {
-    const d = JSON.parse(document.querySelector('#bk').value);
-    S.q = d.q || {}; S.examDate = d.examDate || ''; S.session = null; save(); render();
-  } catch (e) { alert('That text is not a valid backup.'); }
-}
-function resetAll() { if (confirm('Delete all progress?')) { S = { q: {}, examDate: S.examDate, session: null }; save(); render(); } }
 
+// ---------- pipeline builder ----------
+function startPipe(id) {
+  const p = PIPES.filter(function (x) { return x.id === id; })[0];
+  P = { id: id, order: p.stages.map(function (st) { return shuf(st.o.map(function (_, i) { return i; })); }), picks: p.stages.map(function () { return -1; }), done: false };
+  view = 'pipe'; render();
+}
+function pipeDef() { return PIPES.filter(function (x) { return x.id === P.id; })[0]; }
+function pipePick(s, i) { if (P.done) return; P.picks[s] = i; render(); }
+function pipeCheck() {
+  const p = pipeDef();
+  if (P.picks.some(function (x) { return x < 0; })) return;
+  P.done = true; reasonDone = false;
+  const ok = p.stages.filter(function (st, s) { return P.picks[s] === st.a; }).length;
+  const rec = S.pipe[p.id] || { n: 0, ok: 0, total: 0 };
+  rec.n++; rec.ok += ok; rec.total += p.stages.length; S.pipe[p.id] = rec; save();
+  render();
+}
+function renderPipe() {
+  const p = pipeDef();
+  let h = '<div class="top"><button class="link" onclick="goHome()">Home</button><span>Build the pipeline</span></div>';
+  h += '<div class="meta">' + esc(p.title) + '</div><div class="stem">' + esc(p.story) + '</div>';
+  let wrong = 0;
+  p.stages.forEach(function (st, s) {
+    h += '<div class="card"><div class="meta">Stage ' + (s + 1) + ': ' + esc(st.name) + '</div>';
+    P.order[s].forEach(function (i, pos) {
+      let cls = 'opt';
+      if (P.done) {
+        if (i === st.a && P.picks[s] === i) cls += ' good';
+        else if (i === st.a) cls += ' missed';
+        else if (P.picks[s] === i) cls += ' bad';
+      } else if (P.picks[s] === i) cls += ' sel';
+      h += '<div class="' + cls + '"' + (P.done ? '' : ' onclick="pipePick(' + s + ',' + i + ')"') + '><b>' + 'ABCD'[pos] + '</b><div>' + esc(st.o[i]) + '</div></div>';
+    });
+    if (P.done) {
+      if (P.picks[s] !== st.a) wrong++;
+      h += '<div class="rule">' + esc(st.w) + '</div>';
+    }
+    h += '</div>';
+  });
+  if (!P.done) {
+    h += '<button class="big go" ' + (P.picks.some(function (x) { return x < 0; }) ? 'disabled' : '') + ' onclick="pipeCheck()">Check pipeline</button>';
+  } else {
+    h += '<div class="banner ' + (wrong ? 'no' : 'ok') + '">' + (p.stages.length - wrong) + ' of ' + p.stages.length + ' stages right</div>';
+    h += '<div class="rule">' + esc(p.r) + '</div>';
+    if (wrong) h += reasonHtml();
+    h += '<button class="big alt" onclick="goHome()">Home</button>';
+  }
+  return h;
+}
+
+// ---------- eliminate the option ----------
+function startElim() {
+  E = { items: shuf(ELIM.map(function (_, i) { return i; })), idx: 0, ok: 0, answered: false, pick: -1 };
+  E.ord = shuf(ELIM[E.items[0]].reqs.map(function (_, i) { return i; }));
+  view = 'elim'; render();
+}
+function elimAnswer(r) {
+  if (E.answered) return;
+  const it = ELIM[E.items[E.idx]];
+  E.answered = true; E.pick = r;
+  const ok = r === it.a;
+  if (ok) E.ok++;
+  S.elim.n++; if (ok) S.elim.ok++; save();
+  render();
+}
+function elimNext() {
+  E.idx++; E.answered = false; E.pick = -1;
+  if (E.idx < E.items.length) E.ord = shuf(ELIM[E.items[E.idx]].reqs.map(function (_, i) { return i; }));
+  render();
+}
+function renderElim() {
+  if (E.idx >= E.items.length) {
+    let h = '<h1>Round done</h1><div class="card"><span class="count">' + E.ok + ' / ' + E.items.length + '</span> found the failing requirement</div>';
+    return h + '<button class="big go" onclick="startElim()">Another round</button><button class="big alt" onclick="goHome()">Home</button>';
+  }
+  const it = ELIM[E.items[E.idx]];
+  let h = '<div class="top"><button class="link" onclick="goHome()">Home</button><span>' + (E.idx + 1) + ' / ' + E.items.length + '</span></div>';
+  h += '<div class="meta">Which requirement does this option fail?</div>';
+  h += '<div class="stem">' + esc(it.s) + '</div><div class="card"><div class="meta">Proposed solution</div>' + esc(it.o) + '</div>';
+  E.ord.forEach(function (r, pos) {
+    let cls = 'opt';
+    if (E.answered) {
+      if (r === it.a) cls += ' good';
+      else if (r === E.pick) cls += ' bad';
+    }
+    h += '<div class="' + cls + '"' + (E.answered ? '' : ' onclick="elimAnswer(' + r + ')"') + '><b>' + 'ABCD'[pos] + '</b><div>' + esc(it.reqs[r]) + '</div></div>';
+  });
+  if (E.answered) {
+    h += '<div class="banner ' + (E.pick === it.a ? 'ok' : 'no') + '">' + (E.pick === it.a ? 'Correct' : 'Not quite') + '</div>';
+    h += '<div class="rule">' + esc(it.w) + '</div><button class="big go" onclick="elimNext()">Next</button>';
+  }
+  return h;
+}
+
+// ---------- timed mini-exam ----------
+function startExam() {
+  const quota = { 1: 7, 2: 5, 3: 4, 4: 4 };
+  let ids = [];
+  [1, 2, 3, 4].forEach(function (d) {
+    ids = ids.concat(shuf(QUESTIONS.filter(function (q) { return q.d === d; })).slice(0, quota[d]).map(function (q) { return q.id; }));
+  });
+  if (ids.length < EXAM_N) {
+    const rest = shuf(QUESTIONS.filter(function (q) { return ids.indexOf(q.id) < 0; })).slice(0, EXAM_N - ids.length);
+    ids = ids.concat(rest.map(function (q) { return q.id; }));
+  }
+  S.exam = { ids: shuf(ids), idx: 0, ans: {}, orders: {}, endAt: Date.now() + EXAM_MIN * 60000, done: false, result: null };
+  save(); view = 'exam'; render();
+}
+function resumeExam() { view = S.exam.done ? 'examEnd' : 'exam'; render(); }
+function fmt(ms) { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2); }
+function tick() {
+  if (view !== 'exam' || !S.exam || S.exam.done) return;
+  const left = S.exam.endAt - Date.now();
+  if (left <= 0) { finishExam(true); return; }
+  const el = document.querySelector('#timer');
+  if (el) el.textContent = fmt(left);
+}
+setInterval(tick, 1000);
+function examPick(i) {
+  const X = S.exam, id = X.ids[X.idx], q = byId[id], need = needOf(q);
+  let cur = (X.ans[id] || []).slice();
+  if (need === 1) cur = [i];
+  else { const k = cur.indexOf(i); if (k >= 0) cur.splice(k, 1); else if (cur.length < need) cur.push(i); }
+  X.ans[id] = cur; save(); render();
+}
+function examGo(n) { const X = S.exam; X.idx = Math.max(0, Math.min(X.ids.length - 1, n)); save(); render(); }
+function finishExam(force) {
+  const X = S.exam;
+  const unanswered = X.ids.filter(function (id) { return !(X.ans[id] && X.ans[id].length); }).length;
+  if (!force && unanswered && !confirm(unanswered + ' unanswered. Finish anyway?')) return;
+  const dom = { 1: { n: 0, ok: 0 }, 2: { n: 0, ok: 0 }, 3: { n: 0, ok: 0 }, 4: { n: 0, ok: 0 } };
+  const missed = [];
+  let score = 0;
+  X.ids.forEach(function (id) {
+    const q = byId[id], ok = sameSet(correctIdx(q), X.ans[id] || []);
+    dom[q.d].n++; if (ok) { dom[q.d].ok++; score++; } else missed.push(id);
+    updateRecord(q, ok);
+  });
+  X.result = { score: score, total: X.ids.length, dom: dom, missed: missed };
+  X.done = true;
+  S.hist.push({ t: Date.now(), score: score, total: X.ids.length });
+  save(); view = 'examEnd'; render();
+}
+function renderExam() {
+  const X = S.exam, id = X.ids[X.idx], q = byId[id];
+  if (!X.orders[id]) X.orders[id] = shuf(q.o.map(function (_, i) { return i; }));
+  const need = needOf(q), cur = X.ans[id] || [];
+  let h = '<div class="top"><button class="link" onclick="goHome()">Home</button><span class="timer" id="timer">' + fmt(X.endAt - Date.now()) + '</span><span>' + (X.idx + 1) + ' / ' + X.ids.length + '</span></div>';
+  h += '<div class="meta">D' + q.d + ' &middot; no feedback until you finish</div>' + stemHtml(q);
+  if (need > 1) h += '<div class="hint">Select ' + need + '</div>';
+  h += optHtml(q, X.orders[id], cur, false, 'examPick');
+  h += '<div class="row">';
+  h += '<button class="pill" ' + (X.idx === 0 ? 'disabled' : '') + ' onclick="examGo(' + (X.idx - 1) + ')">Back</button>';
+  h += '<button class="pill" ' + (X.idx === X.ids.length - 1 ? 'disabled' : '') + ' onclick="examGo(' + (X.idx + 1) + ')">Next</button></div>';
+  h += '<div class="dots">';
+  X.ids.forEach(function (qid, n) {
+    h += '<button class="dot' + (X.ans[qid] && X.ans[qid].length ? ' done' : '') + (n === X.idx ? ' here' : '') + '" onclick="examGo(' + n + ')">' + (n + 1) + '</button>';
+  });
+  h += '</div><button class="big warn" onclick="finishExam(false)">Finish exam</button>';
+  return h;
+}
+function renderExamEnd() {
+  const X = S.exam, r = X.result;
+  let h = '<h1>Mini-exam result</h1><div class="card"><span class="count">' + r.score + ' / ' + r.total + '</span> (' + pct(r.score, r.total) + ')</div>';
+  h += '<div class="card"><div class="meta">By domain</div>';
+  [1, 2, 3, 4].forEach(function (d) { if (r.dom[d].n) h += '<div class="stat"><span>Domain ' + d + '</span><b>' + r.dom[d].ok + ' / ' + r.dom[d].n + '</b></div>'; });
+  h += '</div>';
+  if (r.missed.length) {
+    h += '<div class="meta">Review the ones you missed</div>';
+    r.missed.forEach(function (id) {
+      const q = byId[id];
+      h += '<details class="card"><summary>' + esc(q.t) + ': ' + esc(q.q.slice(0, 80)) + '...</summary>' + stemHtml(q) + optHtml(q, q.o.map(function (_, i) { return i; }), X.ans[id] || [], true, '') + '<div class="rule">' + esc(q.r) + '</div></details>';
+    });
+  }
+  h += '<button class="big go" onclick="startExam()">Another mini-exam</button><button class="big alt" onclick="goHome()">Home</button>';
+  return h;
+}
+
+// ---------- quiz and summary views ----------
 function renderQuiz() {
   const se = S.session, q = curQ();
   const key = q.id + ':' + se.idx;
   if (!se.order || se.orderFor !== key) { se.order = shuf(q.o.map(function (_, i) { return i; })); se.orderFor = key; save(); }
   const need = needOf(q), multi = need > 1;
   let h = '<div class="top"><button class="link" onclick="goHome()">Home</button><span>' + (se.idx + 1) + ' / ' + se.ids.length + '</span></div>';
-  h += '<div class="meta">D' + q.d + ' &middot; ' + esc(q.t) + '</div>';
-  h += '<div class="stem">' + esc(q.q) + '</div>';
+  h += '<div class="meta">D' + q.d + ' &middot; ' + esc(q.t) + '</div>' + stemHtml(q);
   if (multi) h += '<div class="hint">Select ' + need + '</div>';
   if (answered) h += '<div class="banner ' + (lastOk ? 'ok' : 'no') + '">' + (lastOk ? 'Correct' : 'Not quite') + '</div>';
-  se.order.forEach(function (i, p) {
-    const o = q.o[i];
-    let cls = 'opt';
-    if (answered) {
-      if (o.c && sel.indexOf(i) >= 0) cls += ' good';
-      else if (o.c) cls += ' missed';
-      else if (sel.indexOf(i) >= 0) cls += ' bad';
-    } else if (sel.indexOf(i) >= 0) cls += ' sel';
-    h += '<div class="' + cls + '" onclick="pick(' + i + ')"><b>' + 'ABCDE'[p] + '</b><div>' + esc(o.t);
-    if (answered) h += '<div class="why">' + (o.c ? 'Right: ' : 'Why not: ') + esc(o.w) + '</div>';
-    h += '</div></div>';
-  });
-  if (!answered && multi) {
-    h += '<button class="big go" ' + (sel.length === need ? '' : 'disabled') + ' onclick="submit()">Submit</button>';
-  }
+  h += optHtml(q, se.order, sel, answered, answered ? '' : 'pick');
+  if (!answered && multi) h += '<button class="big go" ' + (sel.length === need ? '' : 'disabled') + ' onclick="submit()">Submit</button>';
   if (answered) {
     h += '<div class="rule">' + esc(q.r) + '</div>';
+    if (!lastOk) h += reasonHtml();
     if (lastOk && !guessMarked) h += '<button class="big warn" onclick="markGuess()">I guessed this one</button>';
     if (guessMarked) h += '<div class="sub">Marked as a guess. It will come back.</div>';
     h += '<button class="big go" onclick="next()">' + (se.idx + 1 >= se.ids.length ? 'Finish' : 'Next') + '</button>';
   }
   return h;
 }
-
 function renderSummary() {
   const se = S.session, ids = Object.keys(se.res);
   const good = ids.filter(function (k) { return se.res[k]; }).length;
@@ -252,11 +464,102 @@ function renderSummary() {
     missed.forEach(function (k) { h += '<div class="stat"><span>' + esc(byId[k].t) + ': ' + esc(byId[k].q.slice(0, 70)) + '...</span></div>'; });
     h += '</div>';
   }
-  h += '<button class="big go" onclick="startSession(false,0)">Another session</button>';
-  h += '<button class="big alt" onclick="goHome()">Home</button>';
-  return h;
+  return h + '<button class="big go" onclick="startSession(false,0)">Another session</button><button class="big alt" onclick="goHome()">Home</button>';
 }
 
+// ---------- home ----------
+function daysLeft() {
+  if (!S.examDate) return null;
+  return Math.ceil((new Date(S.examDate + 'T00:00:00') - new Date()) / DAY);
+}
+function setExam(v) { S.examDate = v; save(); render(); }
+function renderHome() {
+  const now = Date.now();
+  const ids = Object.keys(S.q);
+  const mastered = ids.filter(function (k) { return S.q[k].box >= 3; }).length;
+  const dueNow = ids.filter(function (k) { return S.q[k].due <= now; }).length + (QUESTIONS.length - ids.length);
+  const dl = daysLeft();
+  let h = '<h1>DEA-C01 Trainer</h1><div class="sub">Short sessions for the train.</div>';
+  h += '<div class="card"><div class="meta">Exam date</div><input type="date" value="' + esc(S.examDate) + '" onchange="setExam(this.value)">';
+  if (dl !== null) h += '<div style="margin-top:8px"><span class="count">' + (dl < 0 ? 0 : dl) + '</span> days left</div>';
+  h += '</div>';
+  if (S.session && !S.session.done) h += '<button class="big alt" onclick="resume()">Resume session (' + (S.session.idx + 1) + ' of ' + S.session.ids.length + ')</button>';
+  h += '<button class="big go" onclick="startSession(false,0)">Start session (10 questions)</button>';
+  h += '<button class="big warn" onclick="startSession(true,0)">Weak spots</button>';
+  h += '<div class="card"><div class="meta">By domain</div><div class="row">';
+  h += '<button class="pill" onclick="startSession(false,1)">D1 34%</button><button class="pill" onclick="startSession(false,2)">D2 26%</button>';
+  h += '<button class="pill" onclick="startSession(false,3)">D3 22%</button><button class="pill" onclick="startSession(false,4)">D4 18%</button></div></div>';
+
+  h += '<div class="card"><div class="meta">Quick drills</div><div class="sub">Phrase in, service out. Two minutes.</div>';
+  h += '<button class="pill wide" onclick="startDrill(\'all\')">Mixed round (all pairs)</button>';
+  DRILLS.forEach(function (s) { h += '<button class="pill wide" onclick="startDrill(\'' + s.id + '\')">' + esc(s.title) + '</button>'; });
+  h += '</div>';
+
+  h += '<div class="card"><div class="meta">Build the pipeline</div><div class="sub">Pick one service for each stage.</div>';
+  PIPES.forEach(function (p) { h += '<button class="pill wide" onclick="startPipe(\'' + p.id + '\')">' + esc(p.title) + '</button>'; });
+  h += '</div>';
+
+  h += '<div class="card"><div class="meta">Eliminate the option</div><div class="sub">Find the requirement a solution fails.</div>';
+  h += '<button class="pill wide" onclick="startElim()">Start a round</button></div>';
+
+  h += '<div class="card"><div class="meta">Timed mini-exam</div><div class="sub">' + EXAM_N + ' questions, ' + EXAM_MIN + ' minutes, no feedback until the end.</div>';
+  if (S.exam && !S.exam.done) h += '<button class="pill wide" onclick="resumeExam()">Continue the exam in progress</button>';
+  h += '<button class="pill wide" onclick="startExam()">Start a mini-exam</button>';
+  if (S.exam && S.exam.done) h += '<button class="pill wide" onclick="resumeExam()">See the last result</button>';
+  h += '</div>';
+
+  // stats
+  const rs = S.reasons, rt = (rs.fact || 0) + (rs.misread || 0) + (rs.plausible || 0);
+  h += '<div class="card"><div class="meta">Progress</div>';
+  h += '<div class="stat"><span>Questions in bank</span><b>' + QUESTIONS.length + '</b></div>';
+  h += '<div class="stat"><span>Ready to practice now</span><b>' + dueNow + '</b></div>';
+  h += '<div class="stat"><span>Mastered</span><b>' + mastered + '</b></div>';
+  if (rt) {
+    h += '<div class="meta" style="margin-top:10px">Why you miss questions</div>';
+    REASONS.forEach(function (r) { h += '<div class="stat"><span>' + r[1] + '</span><b>' + (rs[r[0]] || 0) + ' (' + pct(rs[r[0]] || 0, rt) + ')</b></div>'; });
+  }
+  const dk = Object.keys(S.drill);
+  if (dk.length) {
+    h += '<div class="meta" style="margin-top:10px">Drill accuracy</div>';
+    dk.forEach(function (k) { const s = drillSet(k); if (s) h += '<div class="stat"><span>' + esc(s.title) + '</span><b>' + pct(S.drill[k].ok, S.drill[k].n) + '</b></div>'; });
+  }
+  if (S.elim.n) h += '<div class="stat"><span>Eliminate drill</span><b>' + pct(S.elim.ok, S.elim.n) + '</b></div>';
+  if (S.hist.length) {
+    h += '<div class="meta" style="margin-top:10px">Mini-exams</div>';
+    S.hist.slice(-3).forEach(function (x) { h += '<div class="stat"><span>' + new Date(x.t).toLocaleDateString() + '</span><b>' + x.score + ' / ' + x.total + '</b></div>'; });
+  }
+  h += '</div>';
+
+  h += '<div class="card"><a href="flashcards.html">Open the old flashcards</a></div>';
+  h += '<details class="card"><summary>Backup progress</summary><div class="sub">Progress is stored only in this browser. Copy it somewhere safe.</div>';
+  h += '<button class="pill wide" onclick="exportData()">Show backup text</button><textarea id="bk" placeholder="Backup text appears here. Paste a backup here to restore."></textarea>';
+  h += '<button class="pill wide" onclick="importData()">Restore from text</button><button class="pill wide" onclick="resetAll()">Reset all progress</button></details>';
+  return h;
+}
+function exportData() {
+  const copy = {}; Object.keys(S).forEach(function (k) { if (k !== 'session' && k !== 'exam') copy[k] = S[k]; });
+  document.querySelector('#bk').value = JSON.stringify(copy);
+}
+function importData() {
+  try {
+    const d = JSON.parse(document.querySelector('#bk').value);
+    S = Object.assign({ q: {}, examDate: '', session: null, exam: null }, d); S.session = null; S.exam = null;
+    save(); S = load(); render();
+  } catch (e) { alert('That text is not a valid backup.'); }
+}
+function resetAll() { if (confirm('Delete all progress?')) { const d = S.examDate; localStorage.removeItem(KEY); S = load(); S.examDate = d; save(); render(); } }
+
+// ---------- router ----------
+function render() {
+  if (view === 'quiz') app.innerHTML = renderQuiz();
+  else if (view === 'summary') app.innerHTML = renderSummary();
+  else if (view === 'drill') app.innerHTML = renderDrill();
+  else if (view === 'pipe') app.innerHTML = renderPipe();
+  else if (view === 'elim') app.innerHTML = renderElim();
+  else if (view === 'exam') app.innerHTML = renderExam();
+  else if (view === 'examEnd') app.innerHTML = renderExamEnd();
+  else app.innerHTML = renderHome();
+}
 render();
 </script>
 </body>
